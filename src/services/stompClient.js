@@ -7,7 +7,6 @@ class StompService {
     this.connected = false;
     }
 
-
     // 1. 웹소켓 및 STOMP 연결
     connect(roomId, onMessageReceived) {
 
