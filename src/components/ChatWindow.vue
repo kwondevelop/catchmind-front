@@ -18,51 +18,59 @@ const requestSkipVote = () => {
 };
 
 onMounted(() => {
-    setTimeout(() => {
-        stompService.subscribeChat(props.roomId, (receivedMsg) => {
-            if (receivedMsg.type === 'PLAYERS') {
-                globalState.players = receivedMsg.data;
-                return; 
-            }
-
-            if (receivedMsg.type === 'TIME') {
-                if (globalState.isPlaying) {
-                    globalState.timeLeft = Number(receivedMsg.message);
-                }
-                return;
-            }
-            if (receivedMsg.type === 'START') {
-                globalState.isPlaying = true; 
-                globalState.drawerId = receivedMsg.drawerId;
-                
-                // 값이 존재할 경우(0 이상일 경우) 전역 상태에 정상 반영
-                if (receivedMsg.currentRound !== undefined && receivedMsg.currentRound !== null) {
-                    globalState.currentRound = receivedMsg.currentRound;
-                }
-                if (receivedMsg.maxRound !== undefined && receivedMsg.maxRound !== null) {
-                    globalState.maxRound = receivedMsg.maxRound;
+    // 연결될 때까지 0.2초마다 계속 확인하는 로직으로 변경
+    const connectAndSubscribe = () => {
+        if (stompService.connected) {
+            stompService.subscribeChat(props.roomId, (receivedMsg) => {
+                if (receivedMsg.type === 'PLAYERS') {
+                    globalState.players = receivedMsg.data;
+                    return; 
                 }
 
-                if (receivedMsg.drawerId === globalState.myNickname) {
-                    receivedMsg.message = `게임 시작! \n(제시어 : ${receivedMsg.message})`;
-                } else {
-                    receivedMsg.message = `게임 시작! \n(어떤 그림일까요? 맞춰보세요!)`;
+                if (receivedMsg.type === 'TIME') {
+                    if (globalState.isPlaying) {
+                        globalState.timeLeft = Number(receivedMsg.message);
+                    }
+                    return;
                 }
-            }
-            if (receivedMsg.type === 'SYSTEM') {
-                if (receivedMsg.message.includes('정답') || receivedMsg.message.includes('시간 초과') || receivedMsg.message.includes('스킵')) {
-                    globalState.drawerId = null;
-                }
-                if (receivedMsg.message.includes('게임 종료')) {
-                    globalState.isPlaying = false;
-                }
-            }
-            messages.value.push(receivedMsg);
-            scrollToBottom();
-        });
+                if (receivedMsg.type === 'START') {
+                    globalState.isPlaying = true; 
+                    globalState.drawerId = receivedMsg.drawerId;
+                    
+                    if (receivedMsg.currentRound !== undefined && receivedMsg.currentRound !== null) {
+                        globalState.currentRound = receivedMsg.currentRound;
+                    }
+                    if (receivedMsg.maxRound !== undefined && receivedMsg.maxRound !== null) {
+                        globalState.maxRound = receivedMsg.maxRound;
+                    }
 
-        stompService.sendEnter(props.roomId, globalState.myNickname);
-    }, 1000);
+                    if (receivedMsg.drawerId === globalState.myNickname) {
+                        receivedMsg.message = `게임 시작! \n(제시어 : ${receivedMsg.message})`;
+                    } else {
+                        receivedMsg.message = `게임 시작! \n(어떤 그림일까요? 맞춰보세요!)`;
+                    }
+                }
+                if (receivedMsg.type === 'SYSTEM') {
+                    if (receivedMsg.message.includes('정답') || receivedMsg.message.includes('시간 초과') || receivedMsg.message.includes('스킵')) {
+                        globalState.drawerId = null;
+                    }
+                    if (receivedMsg.message.includes('게임 종료')) {
+                        globalState.isPlaying = false;
+                    }
+                }
+                messages.value.push(receivedMsg);
+                scrollToBottom();
+            });
+
+            // 구독 완료 후 입장 메시지 전송
+            stompService.sendEnter(props.roomId, globalState.myNickname);
+        } else {
+            // 아직 연결이 안 되었다면 0.2초(200ms) 뒤에 다시 시도
+            setTimeout(connectAndSubscribe, 200);
+        }
+    };
+
+    connectAndSubscribe();
 });
 
 const sendMessage = () => {
@@ -153,7 +161,7 @@ const scrollToBottom = async () => {
 }
 
 .chat-title {
-    font-size: 16px;
+    font-size: 22px;
     color: var(--text-main);
 }
 
@@ -166,7 +174,7 @@ const scrollToBottom = async () => {
     border: none;
     border-radius: 8px;
     font-weight: bold;
-    font-size: 13px;
+    font-size: 16px;
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
@@ -182,12 +190,12 @@ const scrollToBottom = async () => {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     min-height: 0;
 }
 
 .message-item {
-    font-size: 15px; 
+    font-size: 18px; 
     word-break: break-word; 
     white-space: pre-wrap; 
     overflow-wrap: break-word;
@@ -236,7 +244,7 @@ const scrollToBottom = async () => {
     box-sizing: border-box;
     outline: none;
     font-family: inherit;
-    font-size: 15px;
+    font-size: 18px;
 }
 
 .input-area input:focus {
@@ -253,7 +261,7 @@ const scrollToBottom = async () => {
     border-radius: 8px;
     cursor: pointer;
     font-weight: bold;
-    font-size: 15px;
+    font-size: 18px;
     transition: all 0.2s ease;
 }
 

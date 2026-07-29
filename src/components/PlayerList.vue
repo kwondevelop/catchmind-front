@@ -94,7 +94,7 @@ const requestStartGame = () => {
     padding: 15px;
     background-color: #f8f9fa;
     color: var(--text-main);
-    font-size: 18px;
+    font-size: 20px;
     font-weight: bold;
     text-align: center;
     border-bottom: 2px solid var(--border-color);
