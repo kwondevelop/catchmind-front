@@ -2,13 +2,33 @@
 import { ref, onMounted, onUnmounted } from 'vue'; 
 import axios from 'axios';
 import { useRouter } from 'vue-router';
-import { globalState } from '../store'; // 전역 상태관리 import 추가 (필수)
+import { globalState } from '../store'; 
 
 const rooms = ref([]);
-const newRoomName = ref('');
 const router = useRouter();
 
-let pollingInterval = null; // 폴링(반복) 타이머 변수 선언
+let pollingInterval = null; 
+
+// 방 생성 모달 상태 및 설정 데이터
+const showCreateModal = ref(false);
+const newRoomConfig = ref({
+    roomName: '',
+    maxPlayers: 8,
+    maxRound: 5
+});
+
+// 공통 알림 모달 상태
+const showAlertModal = ref(false);
+const alertMessage = ref('');
+
+const showAlert = (message) => {
+    alertMessage.value = message;
+    showAlertModal.value = true;
+};
+
+const closeAlert = () => {
+    showAlertModal.value = false;
+};
 
 const fetchRooms = async () => {
     try {
@@ -20,20 +40,49 @@ const fetchRooms = async () => {
     }
 };
 
+// 방 생성 모달 열기/닫기 함수
+const openModal = () => {
+    newRoomConfig.value = { roomName: '', maxPlayers: 8, maxRound: 5 }; // 초기화
+    showCreateModal.value = true;
+};
+
+const closeModal = () => {
+    showCreateModal.value = false;
+};
+
 const createRoom = async () => {
-    if (!newRoomName.value.trim()) return;
+    if (!newRoomConfig.value.roomName.trim()) {
+        showAlert('방 제목이 입력되지 않았습니다.');
+        return;
+    }
+    
     try {
+        // 서버로 방 제목, 최대 인원, 라운드 수 전송
         const res = await axios.post(`http://${window.location.hostname}:8085/api/lobby/room`, {
-            roomName: newRoomName.value
+            roomName: newRoomConfig.value.roomName,
+            maxPlayers: newRoomConfig.value.maxPlayers,
+            maxRound: newRoomConfig.value.maxRound
         });
-        joinRoom(res.data.roomId);
+        
+        closeModal();
+        await fetchRooms();     
+        joinRoom(res.data);     
     } catch (e) {
         console.error('방 생성 실패:', e);
+        showAlert('방 생성에 실패했습니다.');
     }
 };
 
-const joinRoom = (roomId) => {
-    router.push(`/room/${roomId}`);
+const joinRoom = (room) => {
+    if (room.playing || room.isPlaying) {
+        showAlert('이미 게임이 진행 중인 방입니다.');
+        return;
+    }
+    if (room.currentPlayers >= room.maxPlayers) {
+        showAlert('인원이 가득 찬 방입니다.');
+        return;
+    }
+    router.push(`/room/${room.roomId}`);
 };
 
 onMounted(() => {
@@ -41,13 +90,11 @@ onMounted(() => {
         router.push('/');
         return;
     }
-    fetchRooms(); // 처음 진입 시 1회 불러오기
+    fetchRooms(); 
     
-    // 1초마다 방 목록 지속 갱신 (늦게 온 사람도 최신 상태 확인 가능)
     pollingInterval = setInterval(fetchRooms, 1000); 
 });
 
-// 컴포넌트가 파괴될 때(방에 입장할 때 등) 타이머 종료 (메모리 누수 방지)
 onUnmounted(() => {
     if (pollingInterval) clearInterval(pollingInterval);
 });
@@ -55,36 +102,24 @@ onUnmounted(() => {
 
 <template>
 <div class="lobby-wrapper">
-    <!-- 헤더 영역 -->
     <header class="lobby-header">
-        <h1 class="logo">캐치마인드 대기실</h1>
+        <h1 class="logo">대기실</h1>
             <div class="user-badge">
                 <span class="greeting">환영합니다,</span>
                 <span class="nickname">{{ globalState.myNickname }}</span> 님!
             </div>
     </header>
 
-    <!-- 컨트롤 영역 -->
     <div class="controls-section">
         <button @click="fetchRooms" class="btn-refresh">새로고침</button>
-        <div class="create-box">
-            <input 
-                v-model="newRoomName" 
-                placeholder="방 제목을 입력하세요!" 
-                @keyup.enter="createRoom" 
-                maxlength="20"
-            />
-            <button @click="createRoom" class="btn-create">방 만들기</button>
-        </div>
+        <button @click="openModal" class="btn-create">방 만들기</button>
     </div>
 
-    <!-- 방 목록 그리드 -->
     <div class="room-grid">
         <div v-if="rooms.length === 0" class="empty-state">
             현재 만들어진 방이 없습니다. <br/>방을 생성해주세요!
         </div>
 
-            <!-- v-for 반복문 시작 -->
             <div 
                 v-for="room in rooms" 
                 :key="room?.roomId" 
@@ -96,27 +131,71 @@ onUnmounted(() => {
                         <span class="player-count">
                             인원: {{ room.currentPlayers }} / {{ room.maxPlayers }}
                         </span>
-                        <!-- DB의 isPlaying 필드는 JSON 변환 시 playing으로 넘어올 수 있습니다 -->
-                        <span v-if="room.playing || room.isPlaying" class="badge playing">게임중</span>
-                        <span v-else class="badge waiting">대기중</span>
+                        <span v-if="room.playing || room.isPlaying" class="badge playing">게임 중</span>
+                        <span v-else class="badge waiting">대기 중</span>
                     </div>
                 </div>
         
                 <button 
                     v-if="room"
-                    @click="joinRoom(room.roomId)" 
+                    @click="joinRoom(room)" 
                     class="btn-join"
-                    :disabled="room.currentPlayers >= room.maxPlayers"
+                    :disabled="room.currentPlayers >= room.maxPlayers || room.playing || room.isPlaying"
                 >
-                {{ room.currentPlayers >= room.maxPlayers ? '가득 참' : '입장하기' }}
+                {{ room.playing || room.isPlaying ? '게임 진행 중' : (room.currentPlayers >= room.maxPlayers ? '가득 참' : '입장하기') }}
                 </button>
             </div>
+    </div>
+
+    <!-- 방 생성 모달 영역 -->
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal-content">
+            <h2 class="modal-title">새로운 방 만들기</h2>
+            
+            <div class="form-group">
+                <label>방 제목</label>
+                <input v-model="newRoomConfig.roomName" placeholder="방 제목을 입력하세요" maxlength="20" @keyup.enter="createRoom" />
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label>최대 인원</label>
+                    <select v-model="newRoomConfig.maxPlayers">
+                        <option :value="2">2명</option>
+                        <option :value="4">4명</option>
+                        <option :value="6">6명</option>
+                        <option :value="8">8명 (기본)</option>
+                    </select>
+                </div>
+                <div class="form-group half">
+                    <label>라운드 수</label>
+                    <select v-model="newRoomConfig.maxRound">
+                        <option :value="3">3 라운드</option>
+                        <option :value="5">5 라운드 (기본)</option>
+                        <option :value="7">7 라운드</option>
+                        <option :value="10">10 라운드</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button @click="closeModal" class="btn-cancel">취소</button>
+                <button @click="createRoom" class="btn-submit">생성하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 공통 알림 모달 영역 -->
+    <div v-if="showAlertModal" class="modal-overlay alert-overlay" @click.self="closeAlert">
+        <div class="modal-content alert-content">
+            <p class="alert-text">{{ alertMessage }}</p>
+            <button @click="closeAlert" class="btn-submit alert-btn">확인</button>
+        </div>
     </div>
 </div>
 </template>
 
 <style scoped>
-/* 로비 전체 래퍼 */
 .lobby-wrapper {
     max-width: 900px;
     margin: 40px auto;
@@ -126,7 +205,6 @@ onUnmounted(() => {
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 }
 
-/* 헤더 */
 .lobby-header {
     display: flex;
     justify-content: space-between;
@@ -160,23 +238,20 @@ onUnmounted(() => {
     font-weight: bold; 
 }
 
-/* 컨트롤(새로고침, 생성) 영역 */
 .controls-section {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 30px;
-    gap: 20px;
-    flex-wrap: wrap;
 }
 
 .btn-refresh {
     background-color: white;
     color: var(--text-main);
     border: 2px solid var(--border-color);
-    padding: 12px 24px; /* 6번 해결: 버튼 가독성 위해 패딩 확대 */
+    padding: 12px 24px; 
     border-radius: 12px;
-    font-size: 18px; /* 6번 해결: 폰트 확대 */
+    font-size: 18px; 
     cursor: pointer;
     font-weight: bold;
 }
@@ -185,32 +260,11 @@ onUnmounted(() => {
     background-color: var(--bg-color); 
 }
 
-.create-box { 
-    display: flex; 
-    gap: 10px; 
-    flex: 1; 
-    justify-content: flex-end; 
-}
-
-.create-box input {
-    width: 250px;
-    padding: 12px 15px;
-    border: 2px solid var(--border-color);
-    border-radius: 12px;
-    font-family: inherit;
-    font-size: 18px; /* 6번 해결: 입력창 폰트 확대 */
-    outline: none;
-}
-
-.create-box input:focus { 
-    border-color: var(--primary-color); 
-}
-
 .btn-create {
     background-color: var(--primary-color);
     color: white;
     border: none;
-    padding: 12px 25px;
+    padding: 12px 30px;
     border-radius: 12px;
     font-size: 18px;
     font-weight: bold;
@@ -221,7 +275,6 @@ onUnmounted(() => {
     filter: brightness(0.9); 
 }
 
-/* 방 목록 그리드 */
 .room-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
@@ -239,7 +292,6 @@ onUnmounted(() => {
     border: 2px dashed #dee2e6;
 }
 
-/* 개별 방 카드 */
 .room-card {
     display: flex;
     justify-content: space-between;
@@ -277,7 +329,6 @@ onUnmounted(() => {
     color: #495057; 
 }
 
-/* 뱃지 */
 .badge { 
     padding: 6px 10px; 
     border-radius: 6px; 
@@ -312,5 +363,132 @@ onUnmounted(() => {
 
 .btn-join:not(:disabled):hover { 
     filter: brightness(0.9); 
+}
+
+/* 모달 관련 스타일 */
+.modal-overlay {
+    position: fixed;
+    top: 0; 
+    left: 0; 
+    width: 100vw; 
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 30px 40px;
+    border-radius: 20px;
+    width: 400px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.modal-title {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    color: var(--text-main);
+    text-align: center;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.form-group label {
+    font-weight: bold;
+    color: #495057;
+}
+
+.form-group input, .form-group select {
+    padding: 12px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 16px;
+    outline: none;
+    font-family: inherit;
+}
+
+.form-group input:focus, .form-group select:focus {
+    border-color: var(--primary-color);
+}
+
+.form-row {
+    display: flex;
+    gap: 15px;
+}
+
+.form-group.half {
+    flex: 1;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.btn-cancel {
+    flex: 1;
+    padding: 12px;
+    background-color: #f1f3f5;
+    color: #495057;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-cancel:hover { 
+    background-color: #e9ecef; 
+}
+
+.btn-submit {
+    flex: 2;
+    padding: 12px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-submit:hover { 
+    filter: brightness(0.9); 
+}
+
+/* 공통 알림 모달 전용 스타일 */
+.alert-overlay {
+    z-index: 2000; /* 방 생성 모달보다 위에 뜨도록 설정 */
+}
+
+.alert-content {
+    width: 320px;
+    align-items: center;
+    text-align: center;
+    padding: 40px 30px 30px;
+}
+
+.alert-text {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--text-main);
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+}
+
+.alert-btn {
+    width: 100%;
 }
 </style>

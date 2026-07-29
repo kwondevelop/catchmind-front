@@ -15,11 +15,22 @@ const currentRoomId = route.params.id;
 const roomName = ref('로딩중...');
 
 onMounted(async () => {
+    globalState.isPlaying = false;
+    globalState.drawerId = null;
+    globalState.timeLeft = 180;
+    globalState.currentRound = 1;
+    globalState.maxRound = 10; // 기본값
+    globalState.players = [];
+
     try {
         const res = await axios.get(`http://${window.location.hostname}:8085/api/lobby/rooms`);
         const currentRoom = res.data.find(r => r.roomId === currentRoomId);
         if (currentRoom) {
             roomName.value = currentRoom.roomName;
+            // 방 생성 시 설정한 최대 라운드 값을 전역 상태에 반영!
+            if (currentRoom.maxRound) {
+                globalState.maxRound = currentRoom.maxRound;
+            }
         } else {
             roomName.value = '알 수 없는 방';
         }
@@ -35,6 +46,9 @@ const goLobby = () => {
 
 onBeforeRouteLeave((to, from, next) => {
     stompService.sendLeave(currentRoomId, globalState.myNickname);
+    // 방을 나갈 때도 전역 상태를 초기화.
+    globalState.isPlaying = false;
+    globalState.drawerId = null;
     globalState.players = [];
     next();
 });
@@ -43,17 +57,14 @@ onBeforeRouteLeave((to, from, next) => {
 <template>
 <div class="game-container">
     <div class="room-header">
-        <button @click="goLobby" class="btn-leave">로비로 나가기</button>
-
+        <div class="header-spacer"></div>
         <h2 class="room-title">
             {{ roomName }} <span class="room-id">#{{ currentRoomId }}</span>
         </h2>
-
-        <div class="header-spacer"></div>
+        <button @click="goLobby" class="btn-leave">로비로 나가기</button>
     </div>
     
     <div class="game-layout">
-        <!-- 부모 고정 레이아웃 -->
         <PlayerList :roomId="currentRoomId" class="layout-item player-list-area" />
         <CanvasBoard :roomId="currentRoomId" class="layout-item canvas-area" />
         <ChatWindow :roomId="currentRoomId" class="layout-item chat-area" />
@@ -62,7 +73,6 @@ onBeforeRouteLeave((to, from, next) => {
 </template>
 
 <style scoped>
-/* 화면 전체를 꽉 채우되 절대 밖으로 스크롤이 새어나가지 않도록 고정 */
 .game-container { 
     display: flex; 
     flex-direction: column; 
@@ -76,61 +86,77 @@ onBeforeRouteLeave((to, from, next) => {
 }
 
 .room-header { 
-    width: 100%; 
-    max-width: 1500px; 
+    width: 100vw; 
+    max-width: 1440px; 
     display: flex; 
     align-items: center; 
     justify-content: space-between; 
     margin-bottom: 15px; 
-    flex-shrink: 0; /* 헤더가 찌그러지지 않도록 고정 */
+    padding: 12px 25px; 
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    border: 2px solid var(--border-color, #ced4da);
+    flex-shrink: 0; 
+    box-sizing: border-box;
+}
+
+.header-spacer { 
+    width: 110px; 
 }
 
 .room-title { 
     margin: 0; 
     color: var(--text-main); 
-    font-size: 26px; 
+    font-size: 22px; 
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
 .room-id { 
     color: var(--primary-color); 
-    font-size: 20px; 
+    font-size: 18px; 
     font-weight: normal; 
 }
 
 .btn-leave { 
-    padding: 10px 18px; 
+    padding: 8px 16px; 
     background-color: var(--danger-color, #ff6b6b); 
     color: white; 
     border: none; 
-    border-radius: 12px; 
-    font-size: 15px; 
+    border-radius: 10px; 
+    font-size: 14px; 
     font-weight: bold;
     cursor: pointer; 
-    box-shadow: 0 4px 6px rgba(250, 82, 82, 0.2); 
+    box-shadow: 0 4px 6px rgba(250, 82, 82, 0.2);
+    transition: all 0.2s;
 }
 
 .btn-leave:hover { 
     filter: brightness(0.9); 
+    transform: translateY(-2px);
 }
 
-.header-spacer { 
-    width: 130px; 
-}
-
-/* 각 컴포넌트가 자기 영역 안에서만 놀도록 배치 */
 .game-layout {
     display: flex;
     gap: 20px;
-    align-items: stretch; /* 💡 그림판 높이에 맞춰 양옆 창들도 똑같이 늘어나도록 설정 */
+    /* stretch 대신 flex-start를 주어 사이드바들이 그림판 전체 높이에 끌려가지 않고 적당한 비율을 유지하도록 함 */
+    align-items: flex-start; 
     justify-content: center;
     width: 100%;
-    max-width: 1500px;
+    max-width: 1440px;
     flex: 1;
     min-height: 0; 
     box-sizing: border-box;
 }
 
-/* 태블릿이나 모바일 환경 대응 */
+/* 양옆 패널(참여자 목록, 채팅창)의 고정 높이를 그림판 구역과 조화롭게 맞춤 */
+.player-list-area,
+.chat-area {
+    height: 735px; /* 그림판(상단바+툴바+캔버스)의 총 높이와 일치시킴 */
+}
+
 @media (max-width: 1200px) {
     .game-container {
         height: auto;

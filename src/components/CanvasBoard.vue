@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { stompService } from '../services/stompClient';
-import { globalState } from '../store'; // 상태 관리 파일 import
+import { globalState } from '../store'; 
 
 const props = defineProps({ roomId: { type: String, default: 'room-1' } });
 
@@ -11,13 +11,19 @@ let ctx = null;
 const isDrawing = ref(false);
 const penColor = ref('#000000');
 const penWidth = ref(5);
+const currentTool = ref('pen');
+const history = ref([]);
 
 let lastX = 0;
 let lastY = 0;
 
-// 내가 출제자인지 확인하는 계산된 속성
 const isMyTurn = computed(() => {
     return globalState.drawerId === globalState.myNickname;
+});
+
+// 전역 상태(globalState)에서 타이머와 라운드 정보를 실시간으로 가져옴
+const timerPercent = computed(() => {
+    return (globalState.timeLeft / 180) * 100;
 });
 
 onMounted(() => {
@@ -26,8 +32,9 @@ onMounted(() => {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
+    saveState(); 
+
     stompService.connect(props.roomId, (receivedData) => {
-        // 공통 닉네임을 사용해 에코 방지 (내가 보낸 건 무시)
         if (receivedData.senderId === globalState.myNickname) return;
         renderDrawData(receivedData);
     });
@@ -37,9 +44,37 @@ onUnmounted(() => {
     stompService.disconnect();
 });
 
-const startDrawing = (e) => {
-    if (!isMyTurn.value) return; // 출제자가 아니면 그리기 시작 차단
+const saveState = () => {
+    if (!canvasRef.value) return;
+    if (history.value.length >= 20) history.value.shift();
+    history.value.push(canvasRef.value.toDataURL());
+};
 
+// 되돌리기(Undo) 시 참여자들에게도 변경된 캔버스 상태(이미지)를 전송
+const undo = () => {
+    if (!isMyTurn.value || history.value.length <= 1) return;
+    
+    history.value.pop(); // 현재 상태 제거
+    const previousStateUrl = history.value[history.value.length - 1];
+    
+    const img = new Image();
+    img.src = previousStateUrl;
+    img.onload = () => {
+        ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
+        ctx.drawImage(img, 0, 0);
+    };
+
+    // 참여자들에게 되돌린 상태 동기화 전송
+    const undoData = {
+        type: 'UNDO',
+        senderId: globalState.myNickname,
+        imageState: previousStateUrl
+    };
+    stompService.sendDrawData(props.roomId, undoData);
+};
+
+const startDrawing = (e) => {
+    if (!isMyTurn.value) return;
     isDrawing.value = true;
     const { x, y } = getMousePos(e);
     lastX = x;
@@ -50,32 +85,40 @@ const draw = (e) => {
     if (!isDrawing.value || !isMyTurn.value) return;
 
     const { x, y } = getMousePos(e);
+    const colorToUse = currentTool.value === 'eraser' ? '#ffffff' : penColor.value;
+    const widthToUse = currentTool.value === 'eraser' ? Number(penWidth.value) * 3 : Number(penWidth.value);
 
     const drawData = {
         type: 'DRAW',
         senderId: globalState.myNickname,
-        color: penColor.value,
-        width: Number(penWidth.value),
+        color: colorToUse,
+        width: widthToUse,
         startX: lastX,
         startY: lastY,
         endX: x,
         endY: y
     };
 
-    renderDrawData(drawData); // 내 화면에 먼저 그리기
-    stompService.sendDrawData(props.roomId, drawData); // 서버로 전송
+    renderDrawData(drawData); 
+    stompService.sendDrawData(props.roomId, drawData); 
 
     lastX = x;
     lastY = y;
 };
 
-const stopDrawing = () => { isDrawing.value = false; };
+const stopDrawing = () => { 
+    if (isDrawing.value) {
+        isDrawing.value = false;
+        saveState();
+    }
+};
 
 const emitClearCanvas = () => {
     if (!isMyTurn.value) return; 
     const clearData = { type: 'CLEAR', senderId: globalState.myNickname };
     renderDrawData(clearData);
     stompService.sendDrawData(props.roomId, clearData);
+    saveState();
 };
 
 const getMousePos = (evt) => {
@@ -83,13 +126,22 @@ const getMousePos = (evt) => {
     return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
 };
 
+// UNDO 타입 메시지 수신 시 참여자 캔버스에도 동일하게 반영
 const renderDrawData = (data) => {
     if (data.type === 'CLEAR') {
         ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
         return;
     }
+    if (data.type === 'UNDO') {
+        const img = new Image();
+        img.src = data.imageState;
+        img.onload = () => {
+            ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
+            ctx.drawImage(img, 0, 0);
+        };
+        return;
+    }
     ctx.beginPath();
-    // 9번 문제 해결의 핵심: 전달받은 색상과 두께를 캔버스에 적용
     ctx.strokeStyle = data.color;
     ctx.lineWidth = data.width;
     ctx.moveTo(data.startX, data.startY);
@@ -101,16 +153,43 @@ const renderDrawData = (data) => {
 
 <template>
     <div class="canvas-wrapper">
+        <!-- 가로 길이를 캔버스(800px)와 맞추고 전역 상태 연동 -->
+        <div class="game-info-bar">
+            <div class="round-indicator">
+                라운드 <strong>{{ globalState.currentRound }} / {{ globalState.maxRound }}</strong>
+            </div>
+            <div class="timer-container">
+                <div class="timer-bar" :style="{ width: timerPercent + '%' }"></div>
+                <span class="timer-text">
+                    {{ Math.floor(globalState.timeLeft / 60) }}:{{ String(globalState.timeLeft % 60).padStart(2, '0') }}
+                </span>
+            </div>
+        </div>
+
         <!-- 상단 도구 모음 -->
         <div class="toolbar">
-            <!-- 출제자가 아닐 경우 disabled 클래스를 부여하여 흐리게 처리 -->
             <div :class="['tool-group', { disabled: !isMyTurn }]">
+                <button 
+                    :class="['tool-mode-btn', { active: currentTool === 'pen' }]" 
+                    @click="currentTool = 'pen'"
+                >
+                    펜
+                </button>
+                <button 
+                    :class="['tool-mode-btn', { active: currentTool === 'eraser' }]" 
+                    @click="currentTool = 'eraser'"
+                >
+                    지우개
+                </button>
+            </div>
+
+            <div :class="['tool-group', { disabled: !isMyTurn || currentTool === 'eraser' }]">
                 <label for="colorPicker">색상</label>
                 <input 
                     id="colorPicker" 
                     type="color" 
                     v-model="penColor" 
-                    :disabled="!isMyTurn"
+                    :disabled="!isMyTurn || currentTool === 'eraser'"
                 />
             </div>
 
@@ -126,13 +205,12 @@ const renderDrawData = (data) => {
                 />
             </div>
             
-            <!-- 전체 지우기 버튼은 출제자에게만 보이도록 설정 -->
-            <button 
-                v-if="isMyTurn" 
-                class="clear-btn" 
-                @click="emitClearCanvas"
-            >
-            전체 지우기
+            <button v-if="isMyTurn" class="action-btn undo-btn" @click="undo">
+                되돌리기
+            </button>
+
+            <button v-if="isMyTurn" class="action-btn clear-btn" @click="emitClearCanvas">
+                전체 지우기
             </button>
         </div>
 
@@ -155,66 +233,135 @@ const renderDrawData = (data) => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     padding: 0;
 }
 
-.toolbar {
+/* 캔버스 폭(800px)과 정확히 일치시킴 */
+.game-info-bar {
+    width: 800px;
     display: flex;
-    gap: 30px; /* 도구 간격 넓힘 */
-    padding: 16px 30px; /* 전체 여백 넓힘 */
+    justify-content: space-between;
+    align-items: center;
+    background-color: #ffffff;
+    padding: 10px 20px;
+    border-radius: 12px;
+    border: 2px solid #dee2e6;
+    box-sizing: border-box;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+}
+
+.round-indicator {
+    font-size: 16px;
+    color: #495057;
+}
+
+.timer-container {
+    position: relative;
+    width: 300px;
+    height: 20px;
+    background-color: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timer-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: var(--primary-color, #20c997);
+    transition: width 0.3s linear;
+}
+
+.timer-text {
+    position: relative;
+    font-size: 12px;
+    font-weight: bold;
+    color: #343a40;
+}
+
+.toolbar {
+    width: 800px;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: space-between;
+    gap: 15px; 
+    padding: 12px 20px; 
     background-color: #f8f9fa;
     border-radius: 12px;
+    border: 2px solid #dee2e6;
     box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     align-items: center;
 }
 
-/* 6번 문제 해결: 도구 이름 가독성 완화 (폰트 키움) */
 .tool-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     font-weight: 700;
     color: #343a40;
-    font-size: 18px; /* 글씨 크기 증가 */
-    transition: opacity 0.2s;
+    font-size: 15px; 
 }
 
-/* 출제자가 아닐 때 도구창 비활성화 효과 */
 .tool-group.disabled {
     opacity: 0.4;
     pointer-events: none;
 }
 
-/* 색상 선택기 크기 증가 */
+.tool-mode-btn {
+    padding: 6px 10px;
+    background-color: #e9ecef;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tool-mode-btn.active {
+    background-color: var(--primary-color, #20c997);
+    color: white;
+}
+
 input[type="color"] {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     border: none;
     border-radius: 4px;
     cursor: pointer;
 }
 
-/* 두께 조절 슬라이더 크기 증가 */
 input[type="range"] {
-    width: 150px;
+    width: 100px;
     cursor: pointer;
 }
 
-/* 6번 문제 해결: 지우기 버튼 큼직하게 변경 */
-.clear-btn {
-    padding: 10px 20px;
-    background-color: var(--danger-color, #ff6b6b);
+.action-btn {
+    padding: 8px 14px;
     color: white;
     border: none;
     border-radius: 8px;
     cursor: pointer;
     font-weight: bold;
-    font-size: 16px; /* 버튼 글자 크기 증가 */
+    font-size: 14px; 
     transition: all 0.2s ease;
 }
 
+.undo-btn {
+    background-color: #748ffc;
+}
+.undo-btn:hover {
+    background-color: #5c7cfa;
+}
+
+.clear-btn {
+    background-color: var(--danger-color, #ff6b6b);
+}
 .clear-btn:hover {
     background-color: #fa5252;
 }
@@ -226,12 +373,10 @@ input[type="range"] {
     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
 }
 
-/* 출제자일 때 커서 */
 .can-draw {
     cursor: crosshair !important;
 }
 
-/* 정답자일 때 커서 */
 .cannot-draw {
     cursor: not-allowed !important;
 }

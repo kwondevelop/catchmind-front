@@ -9,6 +9,14 @@ export const globalState = reactive({
     drawerId: null,
     // 현재 접속한 플레이어들의 닉네임
     players: [],
+    // 게임 진행 여부
+    isPlaying: false,
+    // 남은 시간(초)
+    timeLeft: 180,
+    // 현재 라운드
+    currentRound: 1,
+    // 최대 라운드
+    maxRound: 5
 });
 
 // 닉네임 저장 함수
