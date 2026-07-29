@@ -16,6 +16,7 @@ const history = ref([]);
 
 let lastX = 0;
 let lastY = 0;
+let lastSendTime = 0; // 💡 통신 과부하를 막기 위한 마지막 전송 시간 기록 변수
 
 const isMyTurn = computed(() => {
     return globalState.drawerId === globalState.myNickname;
@@ -99,8 +100,15 @@ const draw = (e) => {
         endY: y
     };
 
+    // 1. 내 화면에는 즉시 그림을 렌더링 (끊김 없이 부드럽게)
     renderDrawData(drawData); 
-    stompService.sendDrawData(props.roomId, drawData); 
+
+    // 2. 서버 전송은 30ms 단위로 묶어서 전송 (쓰로틀링 기법 적용)
+    const now = Date.now();
+    if (now - lastSendTime > 30) {
+        stompService.sendDrawData(props.roomId, drawData); 
+        lastSendTime = now;
+    }
 
     lastX = x;
     lastY = y;
@@ -377,7 +385,9 @@ input[type="range"] {
     cursor: crosshair !important;
 }
 
+/* 브라우저 단에서 마우스 클릭/드래그 이벤트를 원천 차단 */
 .cannot-draw {
     cursor: not-allowed !important;
+    pointer-events: none !important; 
 }
 </style>
