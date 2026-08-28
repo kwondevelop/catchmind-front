@@ -16,9 +16,13 @@ export const globalState = reactive({
     // 현재 라운드
     currentRound: 1,
     // 최대 라운드
+<<<<<<< HEAD
     maxRound: 5,
     // 재연결 상태 표시
     isReconnecting: false
+=======
+    maxRound: 5
+>>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
 });
 
 // 닉네임 저장 함수

@@ -1,6 +1,9 @@
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+<<<<<<< HEAD
 import { globalState } from '../store';
+=======
+>>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
 
 class StompService {
     constructor() {
@@ -20,7 +23,10 @@ class StompService {
         
         onConnect: () => {
             this.connected = true;
+<<<<<<< HEAD
             globalState.isReconnecting = false;
+=======
+>>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
             console.log('STOMP 서버에 연결되었습니다.');
         
         // 연결 성공 시 해당 방의 그림 데이터 구독
@@ -30,6 +36,7 @@ class StompService {
         });
         },
 
+<<<<<<< HEAD
         onWebSocketClose: () => {
             if (this.connected) {
                 console.warn('웹소켓 연결이 끊어졌습니다. 재연결을 시도합니다...');
@@ -38,6 +45,8 @@ class StompService {
             }
         },
 
+=======
+>>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
 onStompError: (frame) => {
     console.error('STOMP 오류 발생:', frame.headers['message']);
     },
