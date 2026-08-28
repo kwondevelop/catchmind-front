@@ -69,7 +69,6 @@ onBeforeRouteLeave((to, from, next) => {
         <CanvasBoard :roomId="currentRoomId" class="layout-item canvas-area" />
         <ChatWindow :roomId="currentRoomId" class="layout-item chat-area" />
     </div>
-<<<<<<< HEAD
 
     <!-- 재연결 중 오버레이 -->
     <div v-if="globalState.isReconnecting" class="reconnect-overlay">
@@ -79,8 +78,6 @@ onBeforeRouteLeave((to, from, next) => {
             <p>재연결을 시도 중입니다...</p>
         </div>
     </div>
-=======
->>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
 </div>
 </template>
 
@@ -180,7 +177,6 @@ onBeforeRouteLeave((to, from, next) => {
         align-items: center;
     }
 }
-<<<<<<< HEAD
 
 /* 재연결 오버레이 스타일 */
 .reconnect-overlay {
@@ -228,6 +224,4 @@ onBeforeRouteLeave((to, from, next) => {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-=======
->>>>>>> 7a65796ae172e889445a3e7c1d1ec56aa6d82fc8
 </style>
