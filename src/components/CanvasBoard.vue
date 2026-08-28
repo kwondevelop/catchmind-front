@@ -65,11 +65,10 @@ const undo = () => {
         ctx.drawImage(img, 0, 0);
     };
 
-    // 참여자들에게 되돌린 상태 동기화 전송
+    // 참여자들에게 되돌린 상태 동기화 전송 (이미지 대신 이벤트만 전송하여 서버 통신 에러 방지)
     const undoData = {
         type: 'UNDO',
-        senderId: globalState.myNickname,
-        imageState: previousStateUrl
+        senderId: globalState.myNickname
     };
     stompService.sendDrawData(props.roomId, undoData);
 };
@@ -118,6 +117,14 @@ const stopDrawing = () => {
     if (isDrawing.value) {
         isDrawing.value = false;
         saveState();
+        
+        // 내가 그린 획이 끝났음을 다른 참여자들에게도 알려서 그들도 상태를 저장하게 함
+        if (isMyTurn.value) {
+            stompService.sendDrawData(props.roomId, {
+                type: 'STOP',
+                senderId: globalState.myNickname
+            });
+        }
     }
 };
 
@@ -138,15 +145,26 @@ const getMousePos = (evt) => {
 const renderDrawData = (data) => {
     if (data.type === 'CLEAR') {
         ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
+        // 수신자(참여자)도 CLEAR 후 상태 저장 (단, 내가 보낸 건 무시되므로 중복 저장 안됨)
+        saveState();
+        return;
+    }
+    if (data.type === 'STOP') {
+        // 출제자의 선 긋기가 끝났으므로 수신자(참여자)도 현재 캔버스 상태 저장
+        saveState();
         return;
     }
     if (data.type === 'UNDO') {
-        const img = new Image();
-        img.src = data.imageState;
-        img.onload = () => {
-            ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
-            ctx.drawImage(img, 0, 0);
-        };
+        if (history.value.length > 1) {
+            history.value.pop();
+            const previousStateUrl = history.value[history.value.length - 1];
+            const img = new Image();
+            img.src = previousStateUrl;
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height);
+                ctx.drawImage(img, 0, 0);
+            };
+        }
         return;
     }
     ctx.beginPath();

@@ -73,7 +73,6 @@ onBeforeRouteLeave((to, from, next) => {
     <!-- 재연결 중 오버레이 -->
     <div v-if="globalState.isReconnecting" class="reconnect-overlay">
         <div class="reconnect-content">
-            <div class="spinner"></div>
             <h3>서버와 연결이 끊어졌습니다.</h3>
             <p>재연결을 시도 중입니다...</p>
         </div>
@@ -208,20 +207,5 @@ onBeforeRouteLeave((to, from, next) => {
 .reconnect-content p {
     margin: 0;
     color: var(--text-main);
-}
-
-.spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #f3f3f3;
-    border-top: 5px solid var(--primary-color, #20c997);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
 }
 </style>
